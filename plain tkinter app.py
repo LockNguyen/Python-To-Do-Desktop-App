@@ -15,7 +15,7 @@ counter = 1
 def inputError() :
 	
 	# check for enter task field is empty or not
-	if enterTaskField.get() == "" :
+	if enterTaskField.get() == "":
 		
 		# show the error message
 		messagebox.showerror("Input Error")
