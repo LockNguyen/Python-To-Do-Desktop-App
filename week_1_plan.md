@@ -1,4 +1,4 @@
-Custom Tkinter Workshop
+# Custom Tkinter Workshop
 
 - Set up Python & pip
 - snake_case
