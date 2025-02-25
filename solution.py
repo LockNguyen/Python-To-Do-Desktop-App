@@ -1,5 +1,7 @@
 from customtkinter import CTk, CTkButton, CTkEntry, CTkLabel, CTkScrollableFrame, CTkTabview, CTkTextbox
 import requests
+import pyrebase
+
 
 class ToDoApp:
     """A modern To-Do List application with themes, colors, animations, and drag-and-drop functionality."""
@@ -14,6 +16,103 @@ class ToDoApp:
         self.app.title("Kwabs's To-Do List")
         self.app.geometry("600x500")
 
+        # Task storage
+        self.tasks = []
+        self.task_buttons = [] # Buttons to remove tasks
+        self.dragging_index = None  # Track which task is being dragged
+
+        firebase_config = {
+            "apiKey": "AIzaSyBTK_bxSrB4Ob-UiqUK-ZScWN6iJQmHRqY",
+            "authDomain": "sdc-to-do.firebaseapp.com",
+            "projectId": "sdc-to-do",
+            "storageBucket": "sdc-to-do.firebasestorage.app",
+            "messagingSenderId": "946654441691",
+            "appId": "1:946654441691:web:7e84b748493a6321021cfe",
+            "databaseURL": "https://sdc-to-do-default-rtdb.firebaseio.com/"
+        }
+        
+        firebase = pyrebase.initialize_app(firebase_config)
+
+        self.auth_service = firebase.auth()
+        self.db_service = firebase.database()
+
+        self.user = None
+        self.uid = None
+
+        # Create UI components
+        self.show_login_ui()
+
+    def show_login_ui(self):
+        self.username_label = CTkLabel(master=self.app, text="🧑 Username",
+            font=("Cabin", 22, "bold"), text_color="#FFCC70")
+        self.password_label = CTkLabel(master=self.app, text="🔑 Password",
+            font=("Cabin", 22, "bold"), text_color="#FFCC70")
+        self.username_input = CTkEntry(master=self.app, placeholder_text="Enter your email...", width=250)
+        self.password_input = CTkEntry(master=self.app, width=250)
+        self.login_button = CTkButton(
+            master=self.app, text="Login ➜", text_color="white",
+            width=30, height=30, corner_radius=6,
+            fg_color="#2E2E2E", hover_color="#FF0000",
+            border_color="#FFCC70", border_width=1,
+            command=self.login
+        )
+        self.signup_button = CTkButton(
+            master=self.app, text="Sign Up ➜", text_color="white",
+            width=30, height=30, corner_radius=6,
+            fg_color="#2E2E2E", hover_color="#FF0000",
+            border_color="#FFCC70", border_width=1,
+            command=self.signup
+        )
+
+        self.username_label.pack(pady=10, padx=10)
+        self.username_input.pack(pady=10, padx=10)
+        self.password_label.pack(pady=10, padx=10)
+        self.password_input.pack(pady=10, padx=10)
+        self.login_button.pack(pady=10, padx=10)
+        self.signup_button.pack(pady=10, padx=10)
+
+    def destroy_login_ui(self):
+        self.username_label.destroy()
+        self.username_input.destroy()
+        self.password_label.destroy()
+        self.password_input.destroy()
+        self.login_button.destroy()
+        self.signup_button.destroy()
+
+    def login(self):
+        username = self.username_input.get().strip()
+        self.username_input.delete(0, "end")
+        password = self.password_input.get().strip()
+        self.password_input.delete(0, "end")
+
+        if username == "" or password == "":
+            self.show_error_modal()
+            return
+        
+        try:
+            self.user = self.auth_service.sign_in_with_email_and_password(username, password)
+        except:
+            self.user = None
+            self.show_error_modal()
+            return
+
+        if "error" in self.user:
+            self.user = None
+            self.show_error_modal()
+            return
+        
+        if "idToken" in self.user:
+            indexOfAt = self.user['email'].index("@")
+            self.uid = self.user['email'][:indexOfAt] # [0, index)
+
+            self.destroy_login_ui()
+            self.create_ui()
+            self.load_tasks_from_firebase()
+
+    def signup(self):
+        pass
+
+    def create_ui(self):
         # Create tabviews
         self.tabs = CTkTabview(master=self.app,
                                width=1920, height=1080, # 1920x1080: The tab shrinks responsively, but doesn't expand. Therefore, give it the max resolution of the entire screen.
@@ -22,17 +121,8 @@ class ToDoApp:
 
         # Create tabs
         self.tab_1 = self.tabs.add("To Do List")
-        self.tab_2 = self.tabs.add("Random Meme")
+        self.tab_2 = self.tabs.add("Cat Facts")
 
-        # Task storage
-        self.tasks = []
-        self.task_buttons = [] # Buttons to remove tasks
-        self.dragging_index = None  # Track which task is being dragged
-
-        # Create UI components
-        self.create_ui()
-
-    def create_ui(self):
         """Set up the UI layout and widgets with styling."""
         # Quit button (top-right corner)
         quit_button = CTkButton(
@@ -90,7 +180,7 @@ class ToDoApp:
         self.error_label.configure(state="readonly")
 
         # Generate Meme button
-        fact_button = CTkButton(master=self.tab_2, text="Generate Meme", command=self.get_meme_image)
+        fact_button = CTkButton(master=self.tab_2, text="Get Cat Fact", command=self.get_cat_fact)
         fact_button.pack(pady=10)
 
         self.fact_text = CTkTextbox(master=self.tab_2)
@@ -103,6 +193,14 @@ class ToDoApp:
         #   2. Make sure it's on top
         #   3. Hide the error message after 2000 milliseconds (2 seconds)
         return
+    
+    def add_to_db(self, data: str):
+        task_id = self.db_service.child("tasks").child(self.uid).push(data, self.user['idToken'])
+        return task_id
+    
+    def remove_from_db(self, task_id: str):
+        self.db_service.child("tasks").child(self.uid).child(task_id).remove()
+        return
 
     def add_task(self):
         """Add a new task to the list."""
@@ -112,6 +210,12 @@ class ToDoApp:
         if task_text == "":
             self.show_error_modal()
             return
+        
+        # Add to Firebase Realtime database first.
+        # If works, continue. If not, don't add.
+        task_id = self.add_to_db(task_text)
+        task_id = task_id["name"]
+        print(f"Added task! task_id: {task_id}")
 
         # Create task entry (readonly)
         task_entry = CTkEntry(master=self.frame, width=250)
@@ -121,7 +225,7 @@ class ToDoApp:
         # Create remove button
         remove_button = CTkButton(
             master=self.frame, text="❌ Remove",
-            command=lambda: self.remove_task(task_entry, remove_button)
+            command=lambda: self.remove_task(task_id)
         )        
 
         # ADVANCED: Enable drag-and-drop
@@ -130,29 +234,66 @@ class ToDoApp:
         task_entry.bind("<ButtonRelease-1>", self.drop_task)    # Right button released
 
         # Add to storage
-        self.tasks.append(task_entry)
+        self.tasks.append((task_id, task_entry))
         self.task_buttons.append(remove_button)
 
-        self.reorder_tasks()
+        self.display_tasks()
 
-    def remove_task(self, task_entry, remove_button):
+    def remove_task(self, task_id: str):
         """Remove a task from the list."""
-        if task_entry in self.tasks:
-            index = self.tasks.index(task_entry)
-            self.tasks.pop(index)
-            self.task_buttons.pop(index)
 
-        task_entry.destroy()
-        remove_button.destroy()
-        self.reorder_tasks()
+        for i in range(len(self.tasks)):
+            id, task_entry = self.tasks[i]
+            print(id, task_id)
 
-    def reorder_tasks(self):
+            if id == task_id:
+                self.remove_from_db(task_id)
+                self.tasks.pop(i)
+                remove_button = self.task_buttons.pop(i)
+
+                task_entry.destroy()
+                remove_button.destroy()
+                self.display_tasks()
+
+                break
+
+        return
+
+    def display_tasks(self):
         """Re-display the tasks on the screen to maintain proper layout."""
-        for idx, (task, button) in enumerate(zip(self.tasks, self.task_buttons), start=2):
-            task.grid(row=idx, column=0, padx=10, pady=10, sticky="ew")
-            button.grid(row=idx, column=1, padx=10, pady=10, sticky="ew")
+        for i in range(len(self.tasks)):
+            task_id, task_entry = self.tasks[i]
+            button = self.task_buttons[i]
+            task_entry.grid(row=i+2, column=0, padx=10, pady=10, sticky="ew")  # 0th & 1st rows are for the title & input field
+            button.grid(row=i+2, column=1, padx=10, pady=10, sticky="ew")
 
-    def get_meme_image(self):
+    def load_tasks_from_firebase(self):
+        db_tasks = self.db_service.child("tasks").child(self.uid).get().each()
+
+        for task in db_tasks:
+
+            task_id = task.key()
+            task_text = task.val()
+
+            # print(f"Loaded task! ID: {task_id}, {type(task_id)}")
+
+            # Create task entry (readonly)
+            task_entry = CTkEntry(master=self.frame, width=250)
+            task_entry.insert(0, task_text)
+            task_entry.configure(state="readonly")
+
+            # Create remove button
+            remove_button = CTkButton(
+                master=self.frame, text="❌ Remove",
+                command=lambda t_id=task_id: self.remove_task(t_id) # t_id=task_id captures the task_id value now, so remove_task can reference that, instead of the constantly-changing task_id value.
+            )
+            
+            self.tasks.append((task_id, task_entry))
+            self.task_buttons.append(remove_button)
+
+            self.display_tasks() 
+
+    def get_cat_fact(self):
         # API endpoint URL
         url = 'https://catfact.ninja/fact'
 
@@ -161,11 +302,11 @@ class ToDoApp:
             response = requests.get(url)
 
             if response.status_code == 200:
-                meme = response.json()
+                cat_fact = response.json()
 
                 self.fact_text.configure(state='normal')
                 self.fact_text.delete("0.0", "end")
-                self.fact_text.insert("0.0", meme["fact"])
+                self.fact_text.insert("0.0", cat_fact["fact"])
                 self.fact_text.configure(state='disabled')
             else:
                 print('Error:', response.status_code)
@@ -194,7 +335,7 @@ class ToDoApp:
                 self.tasks.insert(i, self.tasks.pop(self.dragging_index))
                 self.task_buttons.insert(i, self.task_buttons.pop(self.dragging_index))
                 self.dragging_index = i
-                self.reorder_tasks()
+                self.display_tasks()
                 break
 
     def drop_task(self, event):
