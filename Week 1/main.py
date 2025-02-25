@@ -63,8 +63,8 @@ class ToDoApp:
         self.input_field.grid(row=1, column=0, padx=10, pady=10, sticky="ew")
             # ^ sticky="ew" tells the input field to expand to touch East & West walls of its box in the grid.
             # ^ Try removing "sticky" to see what happens!
-        self.input_field.bind("<Return>", lambda event: self.add_task())
-            # ^ Enable pressing the <ENTER> key to create a new task
+        
+        # ^ MEDIUM CHALLENGE: Enable pressing the <ENTER> key to create a new task
 
         # Add Task button
         add_button = CTkButton(
@@ -79,10 +79,10 @@ class ToDoApp:
         self.error_label.configure(state="readonly")
 
     def show_error_modal(self):
-        # TO DO: Implement the show_error_modal() function here!
+        # EASY CHALLENGE: Implement the show_error_modal() function here!
         #   1. Display the modal
         #   2. Make sure it's on top
-        #   3. Hide the error message after 2000 milliseconds (2 seconds) (Hint: app.after()...)
+        #   3. Hide the error message after 2000 milliseconds (2 seconds)
         return
 
     def add_task(self):
@@ -90,7 +90,7 @@ class ToDoApp:
         task_text = self.input_field.get().strip()
         self.input_field.delete(0, "end")
 
-        # TO DO: 
+        # EASY CHALLENGE: 
         # If task_text is empty string:
         #   1. Call show_error_modal() function
         #   2. Return (stop executing)
